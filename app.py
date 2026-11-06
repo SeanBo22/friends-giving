@@ -1,27 +1,57 @@
-import os
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 CSV_PATH = Path(__file__).parent / "friendsgiving_signups.csv"
+COLUMNS = ["name", "rsvp", "bringing"]
+WORKSHEET = "Friendsgiving"
 LOCATION = "Location shared after RSVP"
 
 st.set_page_config(page_title="Friendsgiving RSVP", page_icon="🦃", layout="centered")
 
 
+def use_gsheets():
+    """Use Google Sheets when credentials are configured; otherwise fall back to a local CSV."""
+    try:
+        return "gsheets" in st.secrets.get("connections", {})
+    except Exception:
+        return False
+
+
+def get_conn():
+    from streamlit_gsheets import GSheetsConnection
+
+    return st.connection("gsheets", type=GSheetsConnection)
+
+
+def clean(df):
+    df = df.copy()
+    for col in COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[COLUMNS].dropna(how="all")
+    return df.fillna("").astype(str).reset_index(drop=True)
+
+
 def load_data():
+    if use_gsheets():
+        df = get_conn().read(worksheet=WORKSHEET, ttl=0)
+        return clean(df)
     if CSV_PATH.exists():
         try:
-            return pd.read_csv(CSV_PATH)
+            return clean(pd.read_csv(CSV_PATH))
         except pd.errors.EmptyDataError:
-            return pd.DataFrame(columns=["name", "rsvp", "bringing"])
-    return pd.DataFrame(columns=["name", "rsvp", "bringing"])
+            pass
+    return pd.DataFrame(columns=COLUMNS)
 
 
 def save_data(df):
-    df = df[["name", "rsvp", "bringing"]].copy()
-    df.to_csv(CSV_PATH, index=False)
+    df = clean(df)
+    if use_gsheets():
+        get_conn().update(worksheet=WORKSHEET, data=df)
+    else:
+        df.to_csv(CSV_PATH, index=False)
 
 
 st.title("🦃 Friendsgiving RSVP")
@@ -106,7 +136,11 @@ if not df.empty:
         edit_rsvp = st.selectbox(
             "RSVP",
             ["Attending", "Maybe", "Can't make it"],
-            index=["Attending", "Maybe", "Can't make it"].index(selected["rsvp"]),
+            index=(
+                ["Attending", "Maybe", "Can't make it"].index(selected["rsvp"])
+                if selected["rsvp"] in ["Attending", "Maybe", "Can't make it"]
+                else 0
+            ),
         )
         edit_bringing = st.text_input("What are you bringing?", value=selected["bringing"])
 

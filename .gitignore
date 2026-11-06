@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 friendsgiving_signups.csv
+.streamlit/secrets.toml
